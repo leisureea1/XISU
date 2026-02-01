@@ -1,19 +1,18 @@
 """
-用户信息路由 - Token 认证模式
+用户信息路由
 """
 
 import time
 import logging
-from typing import Tuple
-from fastapi import APIRouter, Depends
+import traceback
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-import requests
 
-from ..services.dependencies import require_auth
-from ..core.user import UserService
+from ..services.auth_service import AuthService
 
 router = APIRouter(tags=["用户"])
 logger = logging.getLogger(__name__)
+auth_service = AuthService()
 
 
 def make_response(success: bool, data=None, error=None):
@@ -26,28 +25,16 @@ def make_response(success: bool, data=None, error=None):
 
 
 @router.get("/user")
-async def get_user_info(auth: Tuple[requests.Session, dict, str] = Depends(require_auth)):
-    """
-    获取用户信息
-    
-    需要 Authorization: Bearer <token> 认证
-    """
-    session, user_info, token = auth
+async def user(username: str = Query(...), password: str = Query(...)):
+    """获取用户信息"""
     t0 = time.time()
-    
     try:
-        # 如果缓存的 user_info 已包含完整信息，直接返回
-        if user_info.get("name") and user_info.get("student_id"):
-            logger.info(f"[/user] Returned cached info in {time.time()-t0:.4f}s")
-            return make_response(True, data=user_info)
-        
-        # 否则重新获取
-        user_service = UserService(session)
-        fresh_info = user_service.get_info()
+        client, user_info = auth_service.get_client(username, password)
+        if not user_info.get("success"):
+            return make_response(False, error=user_info.get("error"), data=user_info)
         
         logger.info(f"[/user] Done in {time.time()-t0:.2f}s")
-        return make_response(True, data=fresh_info)
-        
+        return make_response(True, data=user_info)
     except Exception as e:
         logger.error(f"[/user] Error: {e}")
-        return make_response(False, error=str(e))
+        return make_response(False, error=str(e) + "\n" + traceback.format_exc())

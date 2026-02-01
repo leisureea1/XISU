@@ -1,19 +1,18 @@
-﻿"""
-学期路由 - Token 认证模式
+"""
+学期路由
 """
 
 import time
 import logging
-from typing import Tuple
-from fastapi import APIRouter, Depends
+import traceback
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-import requests
 
-from ..services.dependencies import require_auth
-from ..core.semester import SemesterService
+from ..services.auth_service import AuthService
 
 router = APIRouter(tags=["学期"])
 logger = logging.getLogger(__name__)
+auth_service = AuthService()
 
 
 def make_response(success: bool, data=None, error=None):
@@ -26,30 +25,25 @@ def make_response(success: bool, data=None, error=None):
 
 
 @router.get("/semester")
-async def get_semester_info(
-    auth: Tuple[requests.Session, dict, str] = Depends(require_auth)
-):
-    """
-    获取学期信息
-    
-    需要 Authorization: Bearer <token> 认证
-    """
-    session, user_info, token = auth
+async def semester(username: str = Query(...), password: str = Query(...)):
+    """获取学期信息"""
     t0 = time.time()
-    
     try:
-        semester_service = SemesterService(session)
-        semester_info = semester_service.get_info()
+        client, info = auth_service.get_client(username, password)
+        if not info.get("success"):
+            return make_response(False, error=info.get("error"))
+        
+        semester_info = client.get_semester_info()
         
         if not semester_info.get("success"):
-            avail = semester_service.get_available()
+            # 尝试获取可用学期列表
+            avail = client.get_available_semesters()
             if avail.get("success"):
                 return make_response(True, data=avail)
             return make_response(False, error=semester_info.get("error"), data=semester_info)
         
         logger.info(f"[/semester] Done in {time.time()-t0:.2f}s")
         return make_response(True, data=semester_info)
-        
     except Exception as e:
         logger.error(f"[/semester] Error: {e}")
-        return make_response(False, error=str(e))
+        return make_response(False, error=str(e) + "\n" + traceback.format_exc())
